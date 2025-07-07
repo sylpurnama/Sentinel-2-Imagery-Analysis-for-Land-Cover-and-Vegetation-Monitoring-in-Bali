@@ -1,2 +1,297 @@
 # Sentinel-2-Imagery-Analysis-for-Land-Cover-and-Vegetation-Monitoring-in-Bali
 This script analyzes Sentinel-2 imagery over Bali (Jan–Jul 2025), applying cloud filtering, NDVI, SAVI, and NDWI calculations, land cover classification using Random Forest, and accuracy assessment. It visualizes composite images and exports results to Google Drive.
+
+Key Features: NDVI, SAVI, NDWI, LULC classification, cloud masking
+
+/////////////////////////////////////////////////////////////////
+///////******* SENTINEL-2 IMAGE ANALYSIS IN BALI ******** ///////
+///////Data Satellite Imagery Analysis ///////////////////
+///////////////////////////////////////////////////////////////// 
+
+// ================== SECTION 1: SETUP AOI ================== //
+print('=== STARTING SENTINEL-2 IMAGE ANALYSIS ===');
+
+// Load AOI from asset
+var AOI = ee.FeatureCollection('projects/plasma-matter-439103-a9/assets/AOI_Bali');
+Map.centerObject(AOI, 12);
+
+// Display AOI on the map
+Map.addLayer(AOI, {color: 'red', strokeWidth: 2}, 'Area of Interest - Bali');
+
+// ================== SECTION 2: ANALYSIS PARAMETERS ================== //
+var startDate = '2025-01-01';
+var endDate = '2025-07-07';
+var maxCloudCover = 20; // Maximum allowed cloud cover (%)
+
+print('Analysis period:', startDate, 'to', endDate);
+print('Maximum cloud cover:', maxCloudCover + '%');
+
+// ================== SECTION 3: SENTINEL-2 DATA ACQUISITION ================== //
+
+// Sentinel-2 Surface Reflectance harmonized image collection
+var dataset_raw = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+  .filterDate(startDate, endDate)
+  .filterBounds(AOI);
+
+// Display basic dataset info
+print('Total number of available images:', dataset_raw.size());
+
+// Get list of image dates
+var dates = dataset_raw.aggregate_array('system:time_start')
+  .map(function(date) {
+    return ee.Date(date).format('YYYY-MM-dd');
+  });
+
+print('Available image dates:', dates);
+
+// ================== SECTION 4: CLOUD COVER ANALYSIS ================== // 
+
+// Create cloud cover information for each image
+var cloudFeatures = dataset_raw.map(function(image) {
+  return ee.Feature(null, {
+    'system:time_start': image.get('system:time_start'),
+    'date': ee.Date(image.get('system:time_start')).format('YYYY-MM-dd'),
+    'cloud_cover': image.get('CLOUDY_PIXEL_PERCENTAGE')
+  });
+});
+
+// Display cloud cover per image
+var cloudInfoFC = ee.FeatureCollection(cloudFeatures);
+print('Cloud cover info per image:', cloudInfoFC);
+
+// Filter images with low cloud cover
+var dataset_filtered = dataset_raw.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', maxCloudCover));
+print('Number of images with cloud cover <', maxCloudCover + '%:', dataset_filtered.size());
+
+// Create cloud cover time series chart
+var cloudTimeSeries = ui.Chart.feature.byFeature(cloudFeatures, 'system:time_start', 'cloud_cover')
+  .setOptions({
+    title: 'Cloud Condition Chart for Sentinel-2 Data (Bali)',
+    hAxis: {
+      title: 'Date',
+      format: 'yyyy-MM-dd',
+      gridlines: {count: 10}
+    },
+    vAxis: {
+      title: 'Cloud Cover Percentage (%)',
+      viewWindow: {min: 0, max: 100}
+    },
+    pointSize: 5,
+    lineWidth: 2,
+    colors: ['#1f77b4'],
+    backgroundColor: '#f8f9fa'
+  });
+
+print(cloudTimeSeries);
+
+// ================== SECTION 5: CLOUD MASKING FUNCTION ================== //
+
+// Function to mask clouds using the QA60 band
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bitmasks for cloud detection
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Create mask: pixels without clouds
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+// ================== SECTION 6: IMAGE PROCESSING ================== //
+
+// Apply cloud masking to image collection
+var S2_collection = dataset_filtered.map(maskS2clouds);
+
+// Create median composite from collection
+var S2 = S2_collection.median().clip(AOI);
+
+print('Composite image successfully created');
+
+// ================== SECTION 7: IMAGE VISUALIZATION ================== //
+
+// Visualization parameters for True Color Composite (TCC)
+var visRGB_TCC = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'],
+  gamma: 1.2
+};
+
+// Visualization parameters for False Color Composite (FCC)
+var visRGB_FCC = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B8A', 'B11', 'B4'],
+  gamma: 1.2
+};
+
+// Display images in different compositions
+Map.addLayer(S2, visRGB_TCC, 'True Color Composite (TCC)');
+Map.addLayer(S2, visRGB_FCC, 'False Color Composite (FCC)', false);
+
+// ================== SECTION 8: VEGETATION INDEX ANALYSIS ================== //
+
+// Calculate NDVI
+var NDVI = S2.expression("(NIR - RED) / (NIR + RED)", {
+  RED: S2.select("B4"),
+  NIR: S2.select("B8"),
+}).rename('NDVI');
+
+// Calculate SAVI
+var L = 0.5;
+var SAVI = S2.expression("((NIR - RED) / (NIR + RED + L)) * (1 + L)", {
+  RED: S2.select("B4"),
+  NIR: S2.select("B8"),
+  L: L
+}).rename('SAVI');
+
+// Calculate NDWI
+var NDWI = S2.expression("(GREEN - NIR) / (GREEN + NIR)", {
+  GREEN: S2.select("B3"),
+  NIR: S2.select("B8")
+}).rename('NDWI');
+
+// ================== SECTION 9: INDEX VISUALIZATION ================== //
+
+var visNDVI = {
+  min: -1, 
+  max: 1, 
+  palette: ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#e6f598', '#abd9e9', '#74add1', '#4575b4']
+};
+
+var visSAVI = {
+  min: -1, 
+  max: 1, 
+  palette: ['#8c510a', '#bf812d', '#dfc27d', '#f6e8c3', '#c7eae5', '#80cdc1', '#35978f', '#01665e']
+};
+
+var visNDWI = {
+  min: -1, 
+  max: 1, 
+  palette: ['#543005', '#8c510a', '#bf812d', '#dfc27d', '#f6e8c3', '#c7eae5', '#80cdc1', '#35978f', '#01665e', '#003c30']
+};
+
+Map.addLayer(NDVI, visNDVI, 'NDVI (Normalized Difference Vegetation Index)');
+Map.addLayer(SAVI, visSAVI, 'SAVI (Soil Adjusted Vegetation Index)', false);
+Map.addLayer(NDWI, visNDWI, 'NDWI (Normalized Difference Water Index)', false);
+
+// ================== SECTION 10: INDEX STATISTICS ================== //
+
+var ndviStats = NDVI.reduceRegion({
+  reducer: ee.Reducer.mean().combine({
+    reducer2: ee.Reducer.minMax(),
+    sharedInputs: true
+  }),
+  geometry: AOI,
+  scale: 30,
+  maxPixels: 1e9
+});
+
+print('NDVI Statistics:', ndviStats);
+
+var ndviHistogram = ui.Chart.image.histogram(NDVI, AOI, 30)
+  .setOptions({
+    title: 'NDVI Histogram - Bali Area',
+    hAxis: {title: 'NDVI Value'},
+    vAxis: {title: 'Pixel Frequency'},
+    colors: ['#1f77b4']
+  });
+
+print(ndviHistogram);
+
+// ================== SECTION 11: LAND COVER CLASSIFICATION ================== //
+
+var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B11', 'B12'];
+
+var S2_withIndices = S2.addBands(NDVI).addBands(SAVI).addBands(NDWI);
+var bandsWithIndices = bands.concat(['NDVI', 'SAVI', 'NDWI']);
+
+//***********LULC ID DESCRIPTION***********//
+//  0: Water Bodies
+//  1: Non-Mangrove Vegetation
+//  2: Mangroves
+//  3: Built-up Area
+//  4: Bare Land
+
+var trainingAsset = ee.FeatureCollection("projects/plasma-matter-439103-a9/assets/Sampel_Point");
+
+var training = S2_withIndices.select(bandsWithIndices).sampleRegions({
+  collection: trainingAsset,
+  properties: ['id'],
+  scale: 10
+});
+ 
+print('Number of training samples:', training.size());
+
+var classifier = ee.Classifier.smileRandomForest(50).train({
+  features: training,
+  classProperty: 'id', 
+  inputProperties: bandsWithIndices
+});
+
+var classified = S2_withIndices.select(bandsWithIndices).classify(classifier);
+
+var classificationVis = {
+  min: 0,
+  max: 4,
+  palette: ['#2471a3', '#82e0aa', '#145a32', '#f5b041', '#ecf0f1']
+};
+
+Map.addLayer(classified, classificationVis, 'Land Cover Classification');
+
+// ================== SECTION 12: ACCURACY ASSESSMENT ================== //
+
+var withRandom = training.randomColumn('random');
+var split = 0.7;
+var trainingPartition = withRandom.filter(ee.Filter.lt('random', split)); 
+var testingPartition = withRandom.filter(ee.Filter.gte('random', split));
+
+var trainedClassifier = ee.Classifier.smileRandomForest(50).train({
+  features: trainingPartition,
+  classProperty: 'id',
+  inputProperties: bandsWithIndices
+});
+
+var test = testingPartition.classify(trainedClassifier);
+
+var confusionMatrix = test.errorMatrix('id', 'classification');
+print('Confusion Matrix:', confusionMatrix);
+print('Overall Accuracy:', confusionMatrix.accuracy());
+print('Kappa Coefficient:', confusionMatrix.kappa());
+
+// ================== SECTION 13: EXPORT RESULTS ================== //
+
+Export.image.toDrive({
+  image: classified,
+  description: 'Bali_LULC_Classification',
+  folder: 'GEE_Exports',
+  region: AOI,
+  scale: 10,
+  maxPixels: 1e9
+});
+
+Export.image.toDrive({
+  image: NDVI,
+  description: 'Bali_NDVI',
+  folder: 'GEE_Exports',
+  region: AOI,
+  scale: 10,
+  maxPixels: 1e9
+});
+
+Export.image.toDrive({
+  image: S2,
+  description: 'Bali_S2_Composite',
+  folder: 'GEE_Exports',
+  region: AOI,
+  scale: 10,
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+print('=== ANALYSIS COMPLETE ===');
+print('Check the "Tasks" tab to start the export process');
