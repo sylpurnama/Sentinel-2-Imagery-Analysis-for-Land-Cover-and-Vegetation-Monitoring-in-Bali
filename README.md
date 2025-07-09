@@ -1,4 +1,4 @@
-🛰️ Sentinel-2 Imagery Analysis for Land Cover and Vegetation Monitoring in Bali
+# 🛰️ Sentinel-2 Imagery Analysis for Land Cover and Vegetation Monitoring in Bali
 A comprehensive Google Earth Engine (GEE) script for analyzing Sentinel-2 satellite imagery over Bali, Indonesia (January–July 2025). This tool provides advanced remote sensing capabilities for land cover classification, vegetation monitoring, and environmental assessment using state-of-the-art spectral indices and machine learning algorithms.
 🌟 Key Features
 
@@ -9,7 +9,7 @@ Accuracy Assessment: Statistical validation of classification results
 Data Visualization: Interactive composite image displays and thematic maps
 Export Capabilities: Direct export to Google Drive for further analysis
 
-🔬 Spectral Indices
+## 🔬 Spectral Indices
 NDVI (Normalized Difference Vegetation Index)
 
 Purpose: Vegetation health and density assessment
@@ -28,7 +28,7 @@ Purpose: Water body detection and moisture content assessment
 Formula: (Green - NIR) / (Green + NIR)
 Applications: Water mapping, flood monitoring, irrigation assessment
 
-🎯 Study Area
+## 🎯 Study Area
 Location: Bali, Indonesia
 Temporal Coverage: January – July 2025
 Satellite Platform: Sentinel-2 (10-20m spatial resolution)
@@ -40,7 +40,7 @@ Basic understanding of remote sensing principles
 JavaScript knowledge for GEE code modification
 Google Drive account for data export
 
-🚀 Installation & Usage
+## 🚀 Installation & Usage
 Setup
 
 Access the Google Earth Engine Code Editor
